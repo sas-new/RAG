@@ -14,6 +14,10 @@ In this project I have used `uv` to install, please feel free to use any package
 
 `uv --version`
 
+## Clone the repository
+
+`git clone https://github.com/akash-balakrishnan-22/RAG.git`
+
 ## Environment Setup
 
 ### Create a Virual Environment
