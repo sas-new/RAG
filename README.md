@@ -41,6 +41,7 @@ Run the data ingestion script to prepare your data:
 
 ### 2. Start the Application
 
+Add your Groq API key in the .env file
 Launch the Streamlit application:
 `uv run streamlit run app.py`
 
