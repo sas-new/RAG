@@ -7,7 +7,7 @@ class Config:
 
     # --- YouTube Configuration ---
     # URL of the YouTube video to be processed.
-    YOUTUBE_VIDEO_URL: str = "https://www.youtube.com/watch?v=uFhDGagZzjs"
+    YOUTUBE_VIDEO_URL: str = "https://www.youtube.com/watch?v=oPn_adlC1Q0"
     
     # Directory where downloaded YouTube audio files will be saved.
     YOUTUBE_AUDIO_SAVE_DIRECTORY: str = "docs/youtube/"
@@ -20,9 +20,9 @@ class Config:
 
 
     # ---Embedding Model Configuration ---
-    EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-large" # "all-MiniLM-L6-v2"
-    CHUNK_SIZE = 2028
-    CHUNK_OVERLAP = 250
+    EMBEDDING_MODEL_NAME = "BAAI/bge-small-en-v1.5"  # Efficient embedding model with good performance
+    CHUNK_SIZE = 512  # Optimized chunk size for the BGE model
+    CHUNK_OVERLAP = 50  # Reduced overlap to prevent redundancy while maintaining context
 
     def __init__(self):
         # Ensure the PDF source directory exists upon initialization.

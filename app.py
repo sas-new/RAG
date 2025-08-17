@@ -9,8 +9,9 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_community.vectorstores import Chroma
-from langchain_groq import ChatGroq
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_community.embeddings import HuggingFaceEmbeddings
+import google.generativeai as genai
 
 from config import config
 
@@ -18,9 +19,12 @@ load_dotenv()
 
 # --- Configuration and Initialization ---
 
-# Set Groq API Key
-if "GROQ_API_KEY" not in os.environ:
-    os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY")
+# Set Google API Key
+if "GOOGLE_API_KEY" not in os.environ:
+    os.environ["GOOGLE_API_KEY"] = os.getenv("GOOGLE_API_KEY")
+
+# Configure Google Generative AI
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # Initialize embeddings model
 def get_embeddings_model():
@@ -40,14 +44,20 @@ def get_vector_store(embed_func):
 
 vectordb = get_vector_store(embeddings)
 
-# Initialize the ChatGroq model
+# Initialize the Gemini Pro model
 def get_chat_model():
-    """Caches the ChatGroq model."""
-    return ChatGroq(
-        model="llama-3.1-8b-instant",
-        temperature=0.0, # Lowering temperature for more consistent answers
-        max_tokens=400
-    )
+    """Caches the Gemini Pro model."""
+    try:
+        return ChatGoogleGenerativeAI(
+            model="gemini-2.5-pro",
+            temperature=0.1,  # Slight randomness for more natural responses
+            max_tokens=1024,  # Increased token limit
+            convert_system_message_to_human=True,  # Added to handle system messages properly
+            verbose=True  # Added for debugging
+        )
+    except Exception as e:
+        st.error(f"Error initializing Gemini Pro model: {e}")
+        raise
 
 model = get_chat_model()
 
@@ -58,14 +68,24 @@ def call_model(state: MessagesState):
     It takes the current state (conversation messages) and invokes the LLM.
     """
     system_prompt = (
-        "You are an assistant for question-answering tasks. Use the following pieces of retrieved context to answer the question."
-        "If you don't know the answer, just say that you don't know. Use three sentences maximum and keep the answer concise."
-        "Answer all questions to the best of your ability."
+        "You are an expert assistant for question-answering tasks specialized in technical and academic content. "
+        "Analyze the following pieces of retrieved context carefully to answer the question. "
+        "If the context contains relevant information, use it to provide a detailed and accurate answer. "
+        "If you don't find the specific information in the context, say so clearly. "
+        "Keep your answers clear and focused, using the context provided. "
+        "If you're unsure about any part of the answer, acknowledge the uncertainty."
     )
     # Prepend the system message to the current conversation history
     messages = [SystemMessage(content=system_prompt)] + state["messages"]
-    response = model.invoke(messages)
-    return {"messages": response}
+    try:
+        response = model.invoke(messages)
+        # Ensure we have a valid response
+        if not response or not response.content:
+            return {"messages": [AIMessage(content="I apologize, but I couldn't generate a proper response. Please try rephrasing your question.")]}
+        return {"messages": response}
+    except Exception as e:
+        st.error(f"Error in model response: {str(e)}")
+        return {"messages": [AIMessage(content="I encountered an error while processing your question. Please try again.")]}
 
 # Build and compile the LangGraph workflow
 def get_langgraph_app():
@@ -110,12 +130,23 @@ if prompt := st.chat_input("Ask a any question..."):
         with st.spinner("Thinking..."):
             try:
                 # 1. Retrieve context for the current user question
-                docs = vectordb.similarity_search_with_score(prompt, k=3)
-                _docs = pd.DataFrame(
-                    [(prompt, doc[0].page_content, doc[0].metadata.get('source'), doc[0].metadata.get('page'), doc[1]) for doc in docs],
-                    columns=['query', 'paragraph', 'document', 'page_number', 'relevant_score']
-                )
-                current_context = "\n\n".join(_docs['paragraph'])
+                docs = vectordb.similarity_search_with_score(prompt, k=5)  # Increased k for more context
+                if not docs:
+                    st.warning("No relevant context found in the documents. The response might be less accurate.")
+                    current_context = ""
+                else:
+                    _docs = pd.DataFrame(
+                        [(prompt, doc[0].page_content, doc[0].metadata.get('source'), doc[0].metadata.get('page'), doc[1]) for doc in docs],
+                        columns=['query', 'paragraph', 'document', 'page_number', 'relevant_score']
+                    )
+                    # Sort by relevance score (lower is better) and take top results
+                    _docs = _docs.sort_values('relevant_score').head(3)
+                    
+                    # Format the context with clear separation
+                    context_parts = []
+                    for _, row in _docs.iterrows():
+                        context_parts.append(f"[From {os.path.basename(row['document'])}, Page {row['page_number']}]:\n{row['paragraph']}")
+                    current_context = "\n\n---\n\n".join(context_parts)
 
                 # 2. Construct the HumanMessage for the current turn, including context
                 # This message will be appended to the existing conversation history by LangGraph
@@ -146,7 +177,16 @@ if prompt := st.chat_input("Ask a any question..."):
                 st.session_state.messages.append({"role": "assistant", "content": final_response})
 
             except Exception as e:
-                st.error(f"An error occurred while processing your request: {e}")
+                error_message = f"An error occurred while processing your request: {str(e)}"
+                st.error(error_message)
+                
+                if "API key" in str(e).lower():
+                    st.error("There seems to be an issue with the API key. Please check your .env file.")
+                elif "model" in str(e).lower():
+                    st.error("There seems to be an issue with the model configuration. Please verify the model name and settings.")
+                elif "context" in str(e).lower():
+                    st.error("There was an issue retrieving context from the documents. Please verify your document ingestion.")
+                
                 st.session_state.messages.append({"role": "assistant", "content": "I encountered an error. Please try again."})
 
 # To run this Streamlit app:
